@@ -1,0 +1,12 @@
+/home/denis/WebSocket/WebSocketCandles/candle_server/target/debug/deps/libasync_trait-5bcc225b9ab42bc7.so: /home/denis/.cargo/registry/src/github.com-1ecc6299db9ec823/async-trait-0.1.68/src/lib.rs /home/denis/.cargo/registry/src/github.com-1ecc6299db9ec823/async-trait-0.1.68/src/args.rs /home/denis/.cargo/registry/src/github.com-1ecc6299db9ec823/async-trait-0.1.68/src/bound.rs /home/denis/.cargo/registry/src/github.com-1ecc6299db9ec823/async-trait-0.1.68/src/expand.rs /home/denis/.cargo/registry/src/github.com-1ecc6299db9ec823/async-trait-0.1.68/src/lifetime.rs /home/denis/.cargo/registry/src/github.com-1ecc6299db9ec823/async-trait-0.1.68/src/parse.rs /home/denis/.cargo/registry/src/github.com-1ecc6299db9ec823/async-trait-0.1.68/src/receiver.rs /home/denis/.cargo/registry/src/github.com-1ecc6299db9ec823/async-trait-0.1.68/src/verbatim.rs
+
+/home/denis/WebSocket/WebSocketCandles/candle_server/target/debug/deps/async_trait-5bcc225b9ab42bc7.d: /home/denis/.cargo/registry/src/github.com-1ecc6299db9ec823/async-trait-0.1.68/src/lib.rs /home/denis/.cargo/registry/src/github.com-1ecc6299db9ec823/async-trait-0.1.68/src/args.rs /home/denis/.cargo/registry/src/github.com-1ecc6299db9ec823/async-trait-0.1.68/src/bound.rs /home/denis/.cargo/registry/src/github.com-1ecc6299db9ec823/async-trait-0.1.68/src/expand.rs /home/denis/.cargo/registry/src/github.com-1ecc6299db9ec823/async-trait-0.1.68/src/lifetime.rs /home/denis/.cargo/registry/src/github.com-1ecc6299db9ec823/async-trait-0.1.68/src/parse.rs /home/denis/.cargo/registry/src/github.com-1ecc6299db9ec823/async-trait-0.1.68/src/receiver.rs /home/denis/.cargo/registry/src/github.com-1ecc6299db9ec823/async-trait-0.1.68/src/verbatim.rs
+
+/home/denis/.cargo/registry/src/github.com-1ecc6299db9ec823/async-trait-0.1.68/src/lib.rs:
+/home/denis/.cargo/registry/src/github.com-1ecc6299db9ec823/async-trait-0.1.68/src/args.rs:
+/home/denis/.cargo/registry/src/github.com-1ecc6299db9ec823/async-trait-0.1.68/src/bound.rs:
+/home/denis/.cargo/registry/src/github.com-1ecc6299db9ec823/async-trait-0.1.68/src/expand.rs:
+/home/denis/.cargo/registry/src/github.com-1ecc6299db9ec823/async-trait-0.1.68/src/lifetime.rs:
+/home/denis/.cargo/registry/src/github.com-1ecc6299db9ec823/async-trait-0.1.68/src/parse.rs:
+/home/denis/.cargo/registry/src/github.com-1ecc6299db9ec823/async-trait-0.1.68/src/receiver.rs:
+/home/denis/.cargo/registry/src/github.com-1ecc6299db9ec823/async-trait-0.1.68/src/verbatim.rs:
