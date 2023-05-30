@@ -1,0 +1,10 @@
+/home/denis/WebSocket/WebSocketCandles/candle_server/target/debug/deps/tokio_tungstenite-25f059f4621bdf8c.rmeta: /home/denis/.cargo/registry/src/github.com-1ecc6299db9ec823/tokio-tungstenite-0.19.0/src/lib.rs /home/denis/.cargo/registry/src/github.com-1ecc6299db9ec823/tokio-tungstenite-0.19.0/src/compat.rs /home/denis/.cargo/registry/src/github.com-1ecc6299db9ec823/tokio-tungstenite-0.19.0/src/connect.rs /home/denis/.cargo/registry/src/github.com-1ecc6299db9ec823/tokio-tungstenite-0.19.0/src/handshake.rs /home/denis/.cargo/registry/src/github.com-1ecc6299db9ec823/tokio-tungstenite-0.19.0/src/stream.rs /home/denis/.cargo/registry/src/github.com-1ecc6299db9ec823/tokio-tungstenite-0.19.0/src/tls.rs
+
+/home/denis/WebSocket/WebSocketCandles/candle_server/target/debug/deps/tokio_tungstenite-25f059f4621bdf8c.d: /home/denis/.cargo/registry/src/github.com-1ecc6299db9ec823/tokio-tungstenite-0.19.0/src/lib.rs /home/denis/.cargo/registry/src/github.com-1ecc6299db9ec823/tokio-tungstenite-0.19.0/src/compat.rs /home/denis/.cargo/registry/src/github.com-1ecc6299db9ec823/tokio-tungstenite-0.19.0/src/connect.rs /home/denis/.cargo/registry/src/github.com-1ecc6299db9ec823/tokio-tungstenite-0.19.0/src/handshake.rs /home/denis/.cargo/registry/src/github.com-1ecc6299db9ec823/tokio-tungstenite-0.19.0/src/stream.rs /home/denis/.cargo/registry/src/github.com-1ecc6299db9ec823/tokio-tungstenite-0.19.0/src/tls.rs
+
+/home/denis/.cargo/registry/src/github.com-1ecc6299db9ec823/tokio-tungstenite-0.19.0/src/lib.rs:
+/home/denis/.cargo/registry/src/github.com-1ecc6299db9ec823/tokio-tungstenite-0.19.0/src/compat.rs:
+/home/denis/.cargo/registry/src/github.com-1ecc6299db9ec823/tokio-tungstenite-0.19.0/src/connect.rs:
+/home/denis/.cargo/registry/src/github.com-1ecc6299db9ec823/tokio-tungstenite-0.19.0/src/handshake.rs:
+/home/denis/.cargo/registry/src/github.com-1ecc6299db9ec823/tokio-tungstenite-0.19.0/src/stream.rs:
+/home/denis/.cargo/registry/src/github.com-1ecc6299db9ec823/tokio-tungstenite-0.19.0/src/tls.rs:
