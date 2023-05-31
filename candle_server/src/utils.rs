@@ -1,12 +1,12 @@
+use regex::Regex;
 use serde::{Deserialize, Serialize};
-use std::{sync::Arc, collections::HashMap};
+use std::{collections::HashMap, sync::Arc};
 use thiserror::Error;
 use tokio::sync::Mutex;
 use tokio_tungstenite::tungstenite;
-use regex::Regex;
 
 #[derive(Debug, Error)]
-pub enum MyError {
+pub enum ServerError {
     #[error(transparent)]
     Io(#[from] std::io::Error),
 
@@ -40,11 +40,17 @@ pub enum MyError {
     #[error("Division by zero")]
     DivisionByZero,
 
+    #[error("Websocket error")] //
+    WebsocketError(tokio_tungstenite::tungstenite::Error),
+
     #[error("Can not serialize")]
     Serialization,
 
     #[error("Operation on mismatched timestamps")]
     MismatchedTimestamps,
+
+    #[error("Wrong stream")]
+    ParsingStream,
 
     #[error("Invalid message")]
     InvalidMessage(String),
@@ -64,13 +70,62 @@ pub struct Response {
     data: Candle,
 }
 
+#[derive(Debug, Deserialize)]
+pub struct BinanceMessage {
+    pub data: BinanceData,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct BinanceData {
+    pub e: String,
+    pub E: u64,
+    pub s: String,
+    pub k: BinanceKlineData,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct BinanceKlineData {
+    pub t: u64,
+    pub T: u64,
+    pub s: String,
+    pub i: String,
+    pub f: u64,
+    pub L: u64,
+    pub o: String, // Open price
+    pub c: String, // Close price
+    pub h: String, // High price
+    pub l: String, // Low price
+    pub v: String,
+    pub n: u64,
+    pub x: bool,
+    pub q: String,
+    pub V: String,
+    pub Q: String,
+    pub B: String,
+}
+
+#[derive(Debug, Serialize)]
+pub struct ResultMessage {
+    pub stream: String,
+    pub data: ResultData,
+}
+
+#[derive(Debug, Serialize)]
+pub struct ResultData {
+    pub t: u64, // kline start time
+    pub o: f64, // open price: 26884.70 + 1806.09
+    pub c: f64, // close price: 26886.20 + 1806.14
+    pub h: f64, // high price: 26892.50 + 1806.33
+    pub l: f64, // low price: 26877.80 + 1805.67
+}
+
 #[derive(Debug, Clone, Copy, Serialize)]
 pub struct Candle {
-    t: u64, // start time
-    o: f64, // open price
-    c: f64, // close price
-    h: f64, // high price
-    l: f64, // low price
+    pub t: u64, // start time
+    pub o: f64, // open price
+    pub c: f64, // close price
+    pub h: f64, // high price
+    pub l: f64, // low price
 }
 
 impl Candle {
@@ -78,15 +133,15 @@ impl Candle {
         Arc::new(Mutex::new(Self { t, o, c, h, l }))
     }
 
-    fn assert_timestamps(&self, other: Self) -> Result<(), MyError> {
+    fn assert_timestamps(&self, other: Self) -> Result<(), ServerError> {
         if self.t != other.t {
-            return Err(MyError::MismatchedTimestamps);
+            return Err(ServerError::MismatchedTimestamps);
         }
 
         Ok(())
     }
 
-    pub fn add(&self, other: Self) -> Result<Self, MyError> {
+    pub fn add(&self, other: Self) -> Result<Self, ServerError> {
         self.assert_timestamps(other)?;
 
         Ok(Self {
@@ -98,7 +153,7 @@ impl Candle {
         })
     }
 
-    pub fn sub(&self, other: Self) -> Result<Self, MyError> {
+    pub fn sub(&self, other: Self) -> Result<Self, ServerError> {
         self.assert_timestamps(other)?;
 
         Ok(Self {
@@ -110,7 +165,7 @@ impl Candle {
         })
     }
 
-    pub fn mul(&self, other: Self) -> Result<Self, MyError> {
+    pub fn mul(&self, other: Self) -> Result<Self, ServerError> {
         self.assert_timestamps(other)?;
 
         Ok(Self {
@@ -122,9 +177,9 @@ impl Candle {
         })
     }
 
-    pub fn div(&self, other: Self) -> Result<Self, MyError> {
+    pub fn div(&self, other: Self) -> Result<Self, ServerError> {
         if other.o == 0.0 || other.c == 0.0 || other.h == 0.0 || other.l == 0.0 {
-            return Err(MyError::DivisionByZero);
+            return Err(ServerError::DivisionByZero);
         }
 
         self.assert_timestamps(other)?;
@@ -139,9 +194,9 @@ impl Candle {
     }
 }
 
-pub fn perform_operation(a: &Candle, b: &Candle, op: &Operation) -> Result<Candle, MyError> {
+pub fn perform_operation(a: &Candle, b: &Candle, op: &Operation) -> Result<Candle, ServerError> {
     if a.t != b.t {
-        return Err(MyError::MismatchedTimestamps);
+        return Err(ServerError::MismatchedTimestamps);
     }
 
     match op {
@@ -149,16 +204,6 @@ pub fn perform_operation(a: &Candle, b: &Candle, op: &Operation) -> Result<Candl
         Operation::Subtract => a.sub(*b),
         Operation::Multiply => a.mul(*b),
         Operation::Divide => a.div(*b),
-    }
-}
-
-pub fn parse_operation(symbol: char) -> Option<Operation> {
-    match symbol {
-        '+' => Some(Operation::Add),
-        '-' => Some(Operation::Subtract),
-        '*' => Some(Operation::Multiply),
-        '/' => Some(Operation::Divide),
-        _ => None,
     }
 }
 
@@ -183,7 +228,7 @@ pub fn parse_price(s: &str) -> f64 {
 pub fn parse_streams(input: &str) -> Vec<String> {
     // Looking for @
     let divider_index = input.rfind('@').unwrap();
-    
+
     // Getting postfix
     let postfix = format!("@kline_{}", &input[(divider_index + 1)..]);
 
@@ -191,18 +236,12 @@ pub fn parse_streams(input: &str) -> Vec<String> {
     let re = Regex::new(r"([()+*/-])").unwrap();
     let tokens = re.split(&input[..divider_index]).collect::<Vec<&str>>();
 
-    tokens.iter().filter(|&&token| !token.trim().is_empty()).map(|&token| format!("{}{}", token, postfix)).collect()
+    tokens
+        .iter()
+        .filter(|&&token| !token.trim().is_empty())
+        .map(|&token| format!("{}{}", token, postfix))
+        .collect()
 }
-
-// fn precedence(op: char) -> i32 {
-//     match op {
-//         '+' | '-' => 1,
-//         '*' | '/' => 2,
-//         '(' => 3,
-//         _ => 0,
-//     }
-// }
-
 
 const OPERATOR_PRECEDENCES: [(char, usize); 5] = [
     ('+', 1),
@@ -212,67 +251,120 @@ const OPERATOR_PRECEDENCES: [(char, usize); 5] = [
     ('(', 0), // lower than any other operator
 ];
 
+#[derive(Clone, Debug, PartialEq)]
 pub enum Token {
-    Operator(char),
-    Operand(char),
+    Operator(Operator),
+    Operand(String),
     LeftParenthesis,
     RightParenthesis,
 }
 
-// impl From<Token> for char {
-//     fn from(value: Token) -> Self {
-//         match value {
-//             Token::Operator(ch) | Token::Operand(ch) => ch,
-//             Token::LeftParenthesis => '(',
-//             Token::RightParenthesis => ')',
-//         }
-//     }
-// }
+#[derive(Clone, Debug, PartialEq)]
+pub enum Operator {
+    Plus,
+    Minus,
+    Multiply,
+    Divide,
+    NotOperator,
+}
 
-// impl From<&Token> for char {
-//     fn from(value: &Token) -> Self {
-//         match value {
-//             Token::Operator(ch) | Token::Operand(ch) => *ch,
-//             Token::LeftParenthesis => '(',
-//             Token::RightParenthesis => ')',
-//         }
-//     }
-// }
+impl From<char> for Operator {
+    fn from(value: char) -> Self {
+        match value {
+            '+' => Operator::Plus,
+            '-' => Operator::Minus,
+            '*' => Operator::Multiply,
+            '/' => Operator::Divide,
+            _ => Operator::NotOperator,
+        }
+    }
+}
 
-pub fn parse(input: &str) -> Result<Vec<Token>, &'static str> {
+impl std::fmt::Display for Operator {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        let symbol = match self {
+            Operator::Plus => '+',
+            Operator::Minus => '-',
+            Operator::Multiply => '*',
+            Operator::Divide => '/',
+            _ => ' ',
+        };
+        write!(f, "{}", symbol)
+    }
+}
+
+impl std::fmt::Display for Token {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        match self {
+            Token::Operator(op) => write!(f, "{}", op),
+            Token::Operand(op) => write!(f, "{}", op),
+            Token::LeftParenthesis => write!(f, "("),
+            Token::RightParenthesis => write!(f, ")"),
+        }
+    }
+}
+
+pub fn parse(input: &str) -> Result<Vec<Token>, ServerError> {
     let mut tokens = Vec::new();
-    for c in input.chars() {
+    let mut current_operand = String::new();
+    let divider_index = input.rfind('@').unwrap();
+    let postfix = format!("@kline_{}", &input[(divider_index + 1)..]);
+
+    for c in input[..divider_index].chars() {
         match c {
-            '+' | '-' | '*' | '/' => tokens.push(Token::Operator(c)),
+            '+' | '-' | '*' | '/' => {
+                if !current_operand.is_empty() {
+                    tokens.push(Token::Operand(current_operand.clone() + &postfix));
+                    current_operand.clear();
+                }
+                tokens.push(Token::Operator(c.into()));
+            }
             '(' => tokens.push(Token::LeftParenthesis),
-            ')' => tokens.push(Token::RightParenthesis),
+            ')' => {
+                if !current_operand.is_empty() {
+                    tokens.push(Token::Operand(current_operand.clone() + &postfix));
+                    current_operand.clear();
+                }
+                tokens.push(Token::RightParenthesis);
+            }
             _ => {
-                if c.is_alphabetic() {
-                    tokens.push(Token::Operand(c));
+                if c.is_alphanumeric() {
+                    current_operand.push(c);
                 } else {
-                    return Err("Invalid character in the input");
+                    return Err(ServerError::ParsingStream);
                 }
             }
         }
     }
+
+    if !current_operand.is_empty() {
+        tokens.push(Token::Operand(current_operand + &postfix));
+    }
+
     Ok(tokens)
 }
 
-pub fn to_rpn(tokens: &[Token]) -> Result<String, &'static str> {
-    let mut rpn = String::with_capacity(tokens.len());
+pub fn to_rpn(tokens: &[Token]) -> Result<Vec<Token>, ServerError> {
+    let mut rpn = Vec::<Token>::new();
     let mut stack: Vec<&Token> = Vec::new();
     let mut open_brackets = 0;
 
-    let precedence = |c| {
-        OPERATOR_PRECEDENCES.iter().find(|&&(op, _)| if let Token::Operator(op_ch) = op { op_ch == c } else { false }).map(|&(_, p)| p).unwrap_or_else(|| usize::MAX)
+    let precedence = |t: &Token| match t {
+        Token::Operator(op) => match op {
+            Operator::Plus | Operator::Minus => 1,
+            Operator::Multiply | Operator::Divide => 2,
+            _ => 0,
+        },
+        Token::LeftParenthesis => 0,
+        _ => usize::MAX,
     };
-    
+
     for token in tokens {
         match token {
-            Token::Operator(c) => {
+            Token::Operator(_) => {
                 while let Some(&last) = stack.last() {
-                    if precedence(*c) <= precedence(last) {
-                        rpn.push(stack.pop().unwrap());
+                    if precedence(token) <= precedence(last) {
+                        rpn.push((*stack.pop().unwrap()).clone());
                     } else {
                         break;
                     }
@@ -285,32 +377,30 @@ pub fn to_rpn(tokens: &[Token]) -> Result<String, &'static str> {
             }
             Token::RightParenthesis => {
                 if open_brackets == 0 {
-                    return Err("Mismatched parentheses");
+                    return Err(ServerError::ParsingStream);
                 }
                 while let Some(top) = stack.pop() {
-                    if top == '(' {
+                    if matches!(top, Token::LeftParenthesis) {
                         break;
                     }
-                    rpn.push(top);
+                    rpn.push((*top).clone());
                 }
                 open_brackets -= 1;
             }
-            Token::Operand(c) => rpn.push(*c),
+            _ => rpn.push((*token).clone()),
         }
     }
 
     if open_brackets != 0 {
-        return Err("Mismatched parentheses");
+        return Err(ServerError::ParsingStream);
     }
 
     while let Some(op) = stack.pop() {
-        rpn.push(op);
+        rpn.push((*op).clone());
     }
 
     Ok(rpn)
 }
-
-
 
 #[cfg(test)]
 mod tests_parse {
@@ -348,73 +438,122 @@ mod tests_parse {
 
 #[cfg(test)]
 mod tests_rpn {
-    use super::{to_rpn, parse};
+    use super::{parse, to_rpn, Operator, Token};
 
     #[test]
-    fn test_to_rpn_basic() {
-        let tokens = parse("a+b*c").unwrap();
-        let expected = "abc*+".to_string();
-        assert_eq!(to_rpn(&tokens), Ok(expected));
+    fn test_to_rpn_simple_expression() {
+        let tokens = parse("btcusdt+ethusdt@1m").unwrap();
+        let result = to_rpn(&tokens).unwrap();
+        assert_eq!(
+            result,
+            vec![
+                Token::Operand("btcusdt@kline_1m".into()),
+                Token::Operand("ethusdt@kline_1m".into()),
+                Token::Operator(Operator::Plus)
+            ]
+        );
     }
 
     #[test]
-    fn test_to_rpn_with_parentheses() {
-        let tokens = parse("(a+b)*c").unwrap();
-        let expected = "ab+c*".to_string();
-        assert_eq!(to_rpn(&tokens), Ok(expected));
+    fn test_to_rpn_expression_with_parentheses() {
+        let tokens = parse("(btcusdt+ethusdt)*adausdt@1m").unwrap();
+        let result = to_rpn(&tokens).unwrap();
+        assert_eq!(
+            result,
+            vec![
+                Token::Operand("btcusdt@kline_1m".into()),
+                Token::Operand("ethusdt@kline_1m".into()),
+                Token::Operator(Operator::Plus),
+                Token::Operand("adausdt@kline_1m".into()),
+                Token::Operator(Operator::Multiply)
+            ]
+        );
     }
 
     #[test]
-    fn test_to_rpn_complex() {
-        let tokens = parse("a+b*c-d/e").unwrap();
-        let expected = "abc*+de/-".to_string();
-        assert_eq!(to_rpn(&tokens), Ok(expected));
+    fn test_to_rpn_mismatched_parentheses() {
+        let tokens = parse("(btcusdt+ethusdt*adausdt@1m").unwrap();
+        let result = to_rpn(&tokens);
+        assert!(result.is_err());
     }
 
     #[test]
-    fn test_to_rpn_with_parentheses_complex() {
-        let tokens = parse("(a+b)*(c-d)/(e+f)").unwrap();
-        let expected = "ab+cd-*ef+/".to_string();
-        assert_eq!(to_rpn(&tokens), Ok(expected));
+    fn test_to_rpn_operator_precedence() {
+        let tokens = parse("btcusdt+ethusdt*adausdt@1h").unwrap();
+        let result = to_rpn(&tokens).unwrap();
+        assert_eq!(
+            result,
+            vec![
+                Token::Operand("btcusdt@kline_1h".into()),
+                Token::Operand("ethusdt@kline_1h".into()),
+                Token::Operand("adausdt@kline_1h".into()),
+                Token::Operator(Operator::Multiply),
+                Token::Operator(Operator::Plus)
+            ]
+        );
     }
 
     #[test]
-    fn test_to_rpn_with_multiple_parentheses() {
-        let tokens = parse("a/(b+c*(d-e/f))").unwrap();
-        let expected = "abcdef/-*+/".to_string();
-        assert_eq!(to_rpn(&tokens), Ok(expected));
-    }
-
-    #[test]
-    fn test_to_rpn_with_nested_parentheses() {
-        let tokens = parse("a(b-c*d/(f/g)+h)").unwrap();
-        let expected = "abcd*fg//-h+".to_string();
-        assert_eq!(to_rpn(&tokens), Ok(expected));
+    fn test_to_rpn_with_complex_expression() {
+        let tokens = parse("btcusdt+ethusdt*(bnbusdt-trxusdt)@1h").unwrap();
+        let expected = vec![
+            Token::Operand("btcusdt@kline_1h".into()),
+            Token::Operand("ethusdt@kline_1h".into()),
+            Token::Operand("bnbusdt@kline_1h".into()),
+            Token::Operand("trxusdt@kline_1h".into()),
+            Token::Operator(Operator::Minus),
+            Token::Operator(Operator::Multiply),
+            Token::Operator(Operator::Plus),
+        ];
+        assert_eq!(to_rpn(&tokens).unwrap(), expected);
     }
 
     #[test]
     fn test_to_rpn_with_no_parentheses() {
-        let tokens = parse("a+b*c/d-e*f").unwrap();
-        let expected = "abc*d/+ef*-".to_string();
-        assert_eq!(to_rpn(&tokens), Ok(expected));
+        let tokens = parse("btcusdt+ethusdt*bnbusdt/trxusdt@1M").unwrap();
+        let expected = vec![
+            Token::Operand("btcusdt@kline_1M".into()),
+            Token::Operand("ethusdt@kline_1M".into()),
+            Token::Operand("bnbusdt@kline_1M".into()),
+            Token::Operator(Operator::Multiply),
+            Token::Operand("trxusdt@kline_1M".into()),
+            Token::Operator(Operator::Divide),
+            Token::Operator(Operator::Plus),
+        ];
+        assert_eq!(to_rpn(&tokens).unwrap(), expected);
     }
 
     #[test]
-    fn test_to_rpn_with_invalid_characters() {
-        let tokens = parse("a+b*c$").unwrap();
-        assert_eq!(to_rpn(&tokens), Err("Invalid character in the input"));
+    fn test_to_rpn_with_all_operators() {
+        let tokens = parse("btcusdt+ethusdt-bnbusdt*trxusdt/bchusdt@1M").unwrap();
+        let expected = vec![
+            Token::Operand("btcusdt@kline_1M".into()),
+            Token::Operand("ethusdt@kline_1M".into()),
+            Token::Operator(Operator::Plus),
+            Token::Operand("bnbusdt@kline_1M".into()),
+            Token::Operand("trxusdt@kline_1M".into()),
+            Token::Operator(Operator::Multiply),
+            Token::Operand("bchusdt@kline_1M".into()),
+            Token::Operator(Operator::Divide),
+            Token::Operator(Operator::Minus),
+        ];
+        assert_eq!(to_rpn(&tokens).unwrap(), expected);
     }
 
     #[test]
-    fn test_to_rpn_with_unmatched_parentheses() {
-        let tokens = parse("a+(b+c").unwrap();
-        assert_eq!(to_rpn(&tokens), Err("Mismatched parentheses"));
-
-        let tokens = parse("a+b+c)").unwrap();
-        assert_eq!(to_rpn(&tokens), Err("Mismatched parentheses"));
-
-        let tokens = parse("(a+(b*c)))*d").unwrap();
-        assert_eq!(to_rpn(&tokens), Err("Mismatched parentheses"));
+    fn test_to_rpn_with_multiple_parentheses() {
+        let tokens = parse("(btcusdt+(ethusdt-(bnbusdt*(trxusdt/bchusdt))))@1M").unwrap();
+        let expected = vec![
+            Token::Operand("btcusdt@kline_1M".into()),
+            Token::Operand("ethusdt@kline_1M".into()),
+            Token::Operand("bnbusdt@kline_1M".into()),
+            Token::Operand("trxusdt@kline_1M".into()),
+            Token::Operand("bchusdt@kline_1M".into()),
+            Token::Operator(Operator::Divide),
+            Token::Operator(Operator::Multiply),
+            Token::Operator(Operator::Minus),
+            Token::Operator(Operator::Plus),
+        ];
+        assert_eq!(to_rpn(&tokens).unwrap(), expected);
     }
-
 }
